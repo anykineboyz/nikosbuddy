@@ -1,10 +1,8 @@
 from flask import Flask, request
 import requests
-from time import time
-from datetime import datetime
-from zoneinfo import ZoneInfo
 import os
 import re
+import random
 
 app = Flask(__name__)
 
@@ -14,18 +12,8 @@ app = Flask(__name__)
 
 BOT_ID = os.environ.get("BOT_ID")
 
-QUIET_WARNING_COOLDOWN = 90
-
-IMMUNE_USERS = {
-    "ethan",
-    "breyden",
-    "sidney",
-    "jacob",
-    "zach"
-}
-
 # -----------------------------
-# NIKO ONLY BANNED WORDS
+# NIKO BANNED WORDS
 # -----------------------------
 
 NIKO_ONLY_BANNED_WORDS = [
@@ -52,28 +40,14 @@ NIKO_ONLY_BANNED_WORDS = [
     "what",
     "no",
     "stop",
-    "fine",
-    "breyden",
-    "why",
-    "I",
-    "ej",
-    "time",
-    "practice"
+    "fine"
 ]
 
 # -----------------------------
 # STORAGE
 # -----------------------------
 
-warnings = {}
-
-niko_message_count = {}
-
-quiet_users = {}
-
-stop_active = False
-
-five_warnings_alerted = set()
+niko_message_count = 0
 
 # -----------------------------
 # SEND MESSAGE
@@ -86,8 +60,7 @@ def send_message(text):
         return
 
     try:
-
-        response = requests.post(
+        requests.post(
             "https://api.groupme.com/v3/bots/post",
             json={
                 "bot_id": BOT_ID,
@@ -96,89 +69,11 @@ def send_message(text):
             timeout=10
         )
 
-        print(
-            "GroupMe response:",
-            response.status_code
-        )
-
     except Exception as error:
-
         print(
             "Error sending GroupMe message:",
             error
         )
-
-# -----------------------------
-# CHECK IMMUNITY
-# -----------------------------
-
-def is_immune(name):
-
-    return any(
-        user in name.lower()
-        for user in IMMUNE_USERS
-    )
-
-# -----------------------------
-# ADD WARNING
-# -----------------------------
-
-def add_warning(name):
-
-    if is_immune(name):
-        return
-
-    warnings[name] = (
-        warnings.get(name, 0) + 1
-    )
-
-    count = warnings[name]
-
-    if count == 1:
-
-        send_message(
-            f"{name}, this is your first warning. The limit is 5."
-        )
-
-    elif count == 2:
-
-        send_message(
-            f"{name}, this is your second warning. Be careful about your actions."
-        )
-
-    elif count == 3:
-
-        send_message(
-            f"{name}, you now have 3 warnings. Watch your behavior."
-        )
-
-    elif count == 4:
-
-        send_message(
-            f"{name}, you now have 4 warnings. One more will alert section leaders, and they will most likely remove you."
-        )
-
-    elif count >= 5:
-
-        if name not in five_warnings_alerted:
-
-            send_message(
-                f"⚠️ Ethan Vera and Breyden: {name} has reached 5 warnings. Please proceed to remove him."
-            )
-
-            five_warnings_alerted.add(name)
-
-# -----------------------------
-# REMOVE WARNING
-# -----------------------------
-
-def remove_warning(name):
-
-    if name not in warnings:
-        warnings[name] = 0
-
-    if warnings[name] > 0:
-        warnings[name] -= 1
 
 # -----------------------------
 # WEBHOOK
@@ -187,7 +82,7 @@ def remove_warning(name):
 @app.route("/", methods=["POST"])
 def webhook():
 
-    global stop_active
+    global niko_message_count
 
     data = request.json
 
@@ -198,13 +93,6 @@ def webhook():
     if data.get("sender_type") == "bot":
         return "ok", 200
 
-    message = data.get(
-        "text",
-        ""
-    ).strip()
-
-    message_lower = message.lower()
-
     name = data.get(
         "name",
         "Unknown"
@@ -212,187 +100,65 @@ def webhook():
 
     name_lower = name.lower()
 
-    now = time()
+    message = data.get(
+        "text",
+        ""
+    ).strip()
+
+    message_lower = message.lower()
 
     # -----------------------------
-    # ADMIN COMMANDS
+    # ONLY WATCH NIKO
     # -----------------------------
 
-    if is_immune(name):
-
-        # /addwarning NAME
-        if message_lower.startswith(
-            "/addwarning "
-        ):
-
-            target = message[12:].strip()
-
-            if target:
-
-                add_warning(target)
-
-                send_message(
-                    f"{target} received a warning."
-                )
-
-            return "ok", 200
-
-        # /removewarning NAME
-        elif message_lower.startswith(
-            "/removewarning "
-        ):
-
-            target = message[15:].strip()
-
-            if target:
-
-                remove_warning(target)
-
-                send_message(
-                    f"Removed one warning from {target}."
-                )
-
-            return "ok", 200
-
-    # -----------------------------
-    # WARNING COMMAND
-    # -----------------------------
-
-    if message_lower == "/warnings":
-
-        if is_immune(name):
-
-            send_message(
-                f"{name}, you no more warnings buggah, u chilling."
-            )
-
-        else:
-
-            send_message(
-                f"{name}, you have {warnings.get(name, 0)} warnings."
-            )
-
+    if "niko" not in name_lower:
         return "ok", 200
 
     # -----------------------------
-    # STOP SYSTEM
+    # COUNT NIKO'S MESSAGES
     # -----------------------------
 
-    if stop_active:
+    niko_message_count += 1
 
-        if "niko" in name_lower:
+    # -----------------------------
+    # BANNED WORD CHECK
+    # -----------------------------
+
+    for word in NIKO_ONLY_BANNED_WORDS:
+
+        if re.search(
+            rf"\b{re.escape(word)}\b",
+            message_lower
+        ):
 
             send_message(
-                "Niko ignored STOP and received a warning."
+                f"{name}, please watch your language."
             )
 
-            add_warning(name)
-
-        stop_active = False
+            break
 
     # -----------------------------
-    # STOP COMMAND
+    # EVERY 2ND MESSAGE
     # -----------------------------
 
-    if message_lower == "stop":
+    if niko_message_count % 2 == 0:
+
+        stop_messages = [
+            "Niko, please stop sending so many messages.",
+            "Niko, please slow down with the messages.",
+            "Niko, you've been talking a lot. Please stop for a moment.",
+            "Niko, please give the chat a break.",
+            "Niko, that's enough messages for now. Please stop.",
+            "Niko, please stop flooding the chat.",
+            "Niko, you've sent enough messages. Please stop.",
+            "Niko, please chill with the messages.",
+            "Niko, take a break from messaging for a bit.",
+            "Niko, please stop messaging so much."
+        ]
 
         send_message(
-            "Remember Niko, STOP means STOP. Do not send another message or you will receive a warning."
+            random.choice(stop_messages)
         )
-
-        stop_active = True
-
-        return "ok", 200
-
-    # -----------------------------
-    # BOSS
-    # -----------------------------
-
-    if "niko" in name_lower:
-
-        if "boss" in message_lower:
-
-            send_message(
-                "Good boy, Niko!"
-            )
-
-            return "ok", 200
-
-    # -----------------------------
-    # NIKO MESSAGE COUNTER
-    # -----------------------------
-
-    if "niko" in name_lower:
-
-        niko_message_count[name] = (
-            niko_message_count.get(
-                name,
-                0
-            ) + 1
-        )
-
-        if (
-            niko_message_count[name]
-            % 4 == 0
-        ):
-
-            send_message(
-                "Niko, Is your chatting really necessary? If not, please shut it."
-            )
-
-    # -----------------------------
-    # NIKO ONLY BANNED WORDS
-    # -----------------------------
-
-    if "niko" in name_lower:
-
-        for word in NIKO_ONLY_BANNED_WORDS:
-
-            if re.search(
-                rf"\b{re.escape(word)}\b",
-                message_lower
-            ):
-
-                send_message(
-                    f"{name}, stop that."
-                )
-
-                add_warning(name)
-
-                break
-
-    # -----------------------------
-    # QUIET HOURS
-    # 10:00 PM -> 6:30 AM
-    # -----------------------------
-
-    hawaii_time = datetime.now(
-        ZoneInfo("Pacific/Honolulu")
-    )
-
-    current = (
-        hawaii_time.hour
-        + hawaii_time.minute / 60
-    )
-
-    if (
-        current >= 22
-        or current < 6.5
-    ):
-
-        if (
-            name not in quiet_users
-            or now - quiet_users[name]
-            > QUIET_WARNING_COOLDOWN
-        ):
-
-            send_message(
-                f"{name}, please don't message between 10 PM and 6:30 AM. Goodnight!"
-            )
-
-            quiet_users[name] = now
-
-            return "ok", 200
 
     return "ok", 200
 
