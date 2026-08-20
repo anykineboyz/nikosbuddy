@@ -141,7 +141,7 @@ def webhook():
     # EVERY 2ND MESSAGE
     # -----------------------------
 
-    if niko_message_count % 2 == 0:
+    if niko_message_count % 6 == 0:
 
         stop_messages = [
             "Niko, please stop sending so many messages.",
